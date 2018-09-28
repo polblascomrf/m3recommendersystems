@@ -1,0 +1,351 @@
+---
+title: "M3 PushNotifications and Recommender systems"
+output: html_notebook
+---
+#Introduction to R
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+print("Marfeel rocks!")
+```
+
+Lets create a string to personalize the message
+
+
+```{r}
+
+name <- "Marfeelers"
+
+personalizedMessage <- paste0(name, " rock!!!")
+
+print(personalizedMessage)
+```
+
+
+Lets create some messages in bulck
+
+```{r}
+
+nameList <- c( "I", "You", "We", "They", "Marfeelers")
+
+for (name in nameList){
+  print(paste0(name, " rock!!!"))
+}
+
+```
+
+Lets vectorize this
+
+```{r}
+
+nameList <- c( "I", "You", "We", "They", "Marfeelers")
+
+print(paste0(nameList, " rock!!!"))
+
+```
+
+
+##Data Frame and rock and roll
+
+Data frame is R's work horse. A data frame is a matrix-like data structure. Each row is an observation, and each column is a variable of the observations. Columns may have different data types. 
+
+We start by loading some data
+```{r}
+#install.packages("readr")
+library(readr)
+myData <- read_csv("./resources/sampleData1.csv")
+```
+
+
+Lets take a look at the first observations of the data
+```{r}
+head(myData)
+```
+
+This is the dimensions of the data frame: rows and columns
+```{r}
+dim(myData)
+```
+
+Plots some summary statistics
+```{r}
+summary(myData)
+```
+
+Some numbers are very high. Why?
+```{r}
+View(myData)
+```
+
+Lets remove the NA
+```{r}
+myData <- na.omit(myData)
+dim(myData)
+summary(myData)
+```
+
+Note that "page" and "channel" are of class character. Lets transform them as factors. Factor is like an "enum" in Java, is a variable that can have a limited amount of values. 
+
+```{r}
+myData$page <- as.factor(myData$page)
+myData$channel <- as.factor(myData$channel)
+
+summary(myData)
+```
+
+Lets check how many different pages and channels ther are
+
+
+```{r}
+nlevels(myData$page)
+nlevels(myData$channel)
+```
+
+
+##Operate with data frame and dplyr
+
+Lets create a new column in the data frame that is the % of exits in for each article and channel
+```{r}
+myData$exitsPct <- myData$exits / myData$pageViews
+
+summary(myData)
+```
+
+Lets visualize the histogram of existsPct
+```{r}
+hist(myData$exitsPct)
+```
+Lets remove the column that we just created. 
+```{r}
+myData$exitsPct <- NULL
+```
+
+Lets check if the exitPct is very different from channel to channel 
+
+```{r}
+install.packages(c("plyr", "dplyr"))
+library(plyr)
+library(dplyr)
+
+exitPctByChannel <- myData %>% 
+  mutate(exitsPct = exits / pageViews) %>%
+  group_by(channel) %>% 
+  dplyr::summarize(exitsPct = mean(exitsPct))
+
+exitPctByChannel
+```
+With mutate we create a new column, with group_by, we group the rows, most of the subsequent operations are done by group. Summarize computes summary statistics from each group and retruns a single row for each group.
+
+Note that, the mean exitPct is not properly calculated. All articles have the same weight. Example, if we have two articles one with 100 visits and an exit rate of 25%, and another article with 100M visits and an exit rate of 75%, ther exit rate will be 50% this is not right. 
+
+```{r}
+exitPctByChannelProperlyComputed <- myData %>% 
+  mutate(exitsPct = exits / pageViews) %>%
+  group_by(channel) %>% 
+  dplyr::summarize(exitsPctCorrect = weighted.mean(exitsPct, pageViews), totalAmountOfPageViews = sum(pageViews), sdOfPageViews = sd(pageViews)) %>%
+  arrange(exitsPctCorrect)
+
+exitPctByChannelProperlyComputed
+```
+
+sum adds all elements in that column in that group. sd computes the standard deviation. arrange orders the dataframe rows in ascending order of exitsPctCorrect.
+
+
+```{r}
+?sd
+```
+##Exercise 1
+
+Compute the exitsPctCorrect (that is the percentage of page views that are exits) for each channel without using the "weigthed.sum" function. Use "sum"" only. 
+
+```{r}
+#your code goes here
+```
+
+#Recommender system
+
+## Data exploration
+
+
+We start by loading the data that is located in the /resources folder
+
+```{r}
+dataRecom <- read_csv("./resources/dataRecommender.csv")
+dim(dataRecom)
+```
+
+Lets explore the data
+```{r}
+head(dataRecom)
+```
+
+The date column we wont use it, the location eresmama we don't want it. We wont recommend the home XD.
+```{r}
+dataRecom <- dataRecom %>% select(-date) %>% filter(!(location %in% "https://eresmama.com/")) 
+
+dim(dataRecom)
+```
+
+Usually rating matrix is very sparse (most of its values are zero). Lets investigate how is this matrix. For that we will crate a function.
+We don't have ratings, we only have interactions... this is called binary implicit feedback.
+```{r}
+printSparsityMetrics <- function(data){
+  
+  amountItem <- as.numeric(nlevels(as.factor(data$location)))
+  amountOfUsers <- as.numeric(nlevels(as.factor(data$userId)))
+  amountOfelementsInMatrix <- amountOfUsers*amountItem
+  
+  sparcity <- 100 * (1 - nrow(data) / (amountOfelementsInMatrix))
+  
+  print(paste0(" amount of items: ", amountItem, " of users: ", amountOfUsers, " sparsiy: ", sparcity, " amount of elements: ",  amountOfelementsInMatrix))
+  
+  ratingsByUser <- data %>% group_by(userId) %>% dplyr::summarize(num = n())
+  
+  print("--- users ---")
+  print(summary(ratingsByUser$num))
+  
+  ratingsByItem <- data %>% group_by(location) %>% dplyr::summarize(num = n())
+  
+  print("--- items ---")
+  print(summary(ratingsByItem$num))
+}
+```
+
+```{r}
+printSparsityMetrics(dataRecom)
+```
+
+We wont be dealing with users that connect only sporadically, neither with articles that have very few visits. Lets clean this up. 
+
+```{r}
+minNumTimesArticleRated <- 1000
+minNumUserRatins <- 3
+
+dataRecomClean <- dataRecom %>% 
+  group_by(location) %>% 
+  dplyr::mutate(numTimesRated = n()) %>%
+  filter(numTimesRated > minNumTimesArticleRated) %>% 
+  group_by(userId) %>% 
+  dplyr::mutate(numItemRatings = n() )%>%
+  filter(numItemRatings > minNumUserRatins)
+```
+
+```{r}
+printSparsityMetrics(dataRecomClean)
+```
+
+Lets remove from the workspace the other dataframe. 
+```{r}
+rm(dataRecom)
+```
+
+## item similarity
+We will use the recommenderLab package. It provides a nice bunch of functions and objects to work in recommenders. Moreover we have to use a specific class, that is optimized to deal with sparse matrices. 
+```{r}
+#install.packages("recommenderlab")
+library(recommenderlab)
+dataRecomCleanWithFactors <- data.frame(user = as.factor(dataRecomClean$userId), items = as.factor(dataRecomClean$location))
+
+dataRating <- as(dataRecomCleanWithFactors, "binaryRatingMatrix")
+```
+
+Lets compute the similarity
+```{r}
+similarityData <- as.matrix(similarity(dataRating, method = "jaccard", which = "items"))
+```
+
+```{r}
+getSimilarArticles <- function(articleName, distanceMatrix, numberOfSimilarArticles = 1){
+  
+  if(articleName %in% colnames(distanceMatrix)){
+    articleDistance <- distanceMatrix[articleName , ]
+    similarArticles <- names(sort(articleDistance, decreasing = TRUE)[1:numberOfSimilarArticles])
+  }else{
+    return(NULL)
+  }
+
+}
+```
+
+```{r}
+article <- "https://eresmama.com/toxoplasmosis-y-alimentos-prohibidos-en-el-embarazo/" 
+similarArticles <- getSimilarArticles(article, similarityData, 4)
+print(similarArticles)
+```
+
+
+## First recommender 
+
+### How to evaluate recommenders
+
+A typical form is to use the "given" method and some sort of data-splitting (crossvalidation, train-test split, or bootstrap).
+Rememver that we are only tring to predict interaction, not ranking. We would like to recommend items that the users are likely to interact with. 
+
+For example given-10 and a data split of 90% works as follow. 
+In the training: For 90% of the users we use all the data, for the remaining 10%, we use only 10 items in the training.  The rest of the items of those users are keep apart. 
+
+In evaluation: We use only the 10% of users, we ask the recommender to recommend some items for those users. Then we compare the items recommended with the list of items that were keept apart in the training phase.
+
+Note that the recommender can make more than one recommendation per user. 
+
+
+Precision:  #topK and relevant / #top k
+
+Recall: #top k and relevant / #relevant recommendations 
+
+Relevant recommendations are those that are keep apart in the training phase. Top K is the list of items recommended. 
+
+### Simple example
+
+we will simply split the data set into two: training (80%) and evaluation (10%). We will use the given -1, we will keep apart 1 item for 20% of the users
+
+```{r}
+e <- evaluationScheme(dataRating, method = "split", train = 0.8, given = -1)
+```
+
+```{r}
+model <- Recommender(data = getData(e, "train"), method = "IBCF")
+recommendations <- predict(model, newdata = getData(e, "unknown"), n = 10, type="topNList")
+```
+
+lets look at some recommendations
+```{r}
+recommendations
+```
+
+```{r}
+calcPredictionAccuracy(recommendations, getData(e, "known"), given = -1) 
+```
+
+## Comparing recommenders
+
+Lets see whcih recommenders we have 
+```{r}
+recommenderRegistry$get_entries()
+```
+
+Lets compare some of them 
+
+```{r}
+
+algorithms <- list(
+  #RANDOM = list(name = "RANDOM", param = NULL),
+  POPULAR = list(name = "POPULAR", param = NULL),
+  IBCF20 = list(name = "IBCF", param = list(k = 20)),
+  #IBCF40 = list(name = "IBCF", param = list(k = 40)),
+  #IBCF60 = list(name = "IBCF", param = list(k = 60)),
+  UBCF20 = list(name = "UBCF", param = list(nn = 20))#,
+  #UBCF60 = list(name = "UBCF", param = list(nn = 60)),
+  #UBCF90 = list(name = "UBCF", param = list(nn = 90)),
+  #ALS10 = list(name = "ALS_implicit", param=list(n_factors = 10)),
+  #ALS5 = list(name = "ALS_implicit", param=list(n_factors = 5)),
+  #ALS20 = list(name = "ALS_implicit", param=list(n_factors = 20))
+)
+
+results <- evaluate(e, algorithms, type = "topNList", n = c(1,2,3,4,5))
+
+plot(results, "prec/rec", annotate=c(1,2,3,4), legend="topleft")
+```
